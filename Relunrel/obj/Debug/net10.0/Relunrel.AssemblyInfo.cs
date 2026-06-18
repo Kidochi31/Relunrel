@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Relunrel")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+ba4de3eb851133e57db4cd539343cdd72e1391a4")]
 [assembly: System.Reflection.AssemblyProductAttribute("Relunrel")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Relunrel")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

@@ -1,4 +1,4 @@
-namespace Relunrel.PacketsTest;
+namespace Relunrel.Tests;
 
 internal static class TestHelpers
 {

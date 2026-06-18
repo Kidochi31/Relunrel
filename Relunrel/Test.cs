@@ -1,4 +1,4 @@
-using Relunrel.PacketsTest;
+using Relunrel.ConnectionsTest;
 
 
 Console.WriteLine("Hello world!");

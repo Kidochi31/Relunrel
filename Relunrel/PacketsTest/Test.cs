@@ -1,6 +1,6 @@
 namespace Relunrel.PacketsTest;
 using Relunrel.Packets;
-using static TestHelpers;
+using static Relunrel.Tests.TestHelpers;
 
 
 public static class Test{
