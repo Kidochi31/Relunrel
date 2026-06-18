@@ -26,6 +26,11 @@ public class Test{
         TestHeartbeatPreventsTimeout();
         TestHeartbeatResetsTimeout();
         TestReliableUnorderedChannel();
+        TestAckRegisterContiguous();
+        TestAckRegisterSparse();
+        TestAckRegisterDuplicate();
+        TestAckRegisterGapClosure();
+        TestAckRegisterPendingCleared();
     }
 
     public static void TestConnectionHandshake()
@@ -608,5 +613,87 @@ public class Test{
         }), "Payload correct");
 
         Console.WriteLine("PASS: ReliableUnorderedChannel");
+    }
+
+    private static void TestAckRegisterContiguous()
+    {
+        AckRegister ack = new();
+
+        Assert(ack.Receive(0), "Receive 0");
+        Assert(ack.Receive(1), "Receive 1");
+        Assert(ack.Receive(2), "Receive 2");
+
+        Assert(ack.Contains(0), "Contains 0");
+        Assert(ack.Contains(1), "Contains 1");
+        Assert(ack.Contains(2), "Contains 2");
+
+        List<IAcknowledgement> acknowledgements = [];
+
+        ack.BuildAcknowledgements(acknowledgements);
+
+        Assert(acknowledgements.Count == 1, "One acknowledgement");
+        Assert(acknowledgements[0] is AckContiguous, "Contiguous acknowledgement");
+
+        AckContiguous contiguous = (AckContiguous)acknowledgements[0];
+
+        Assert(contiguous.SequenceId == 2, "Highest contiguous is 2");
+    }
+
+    private static void TestAckRegisterSparse()
+    {
+        AckRegister ack = new();
+
+        ack.Receive(0);
+        ack.Receive(1);
+        ack.Receive(2);
+        ack.Receive(5);
+
+        List<IAcknowledgement> acknowledgements = [];
+
+        ack.BuildAcknowledgements(acknowledgements);
+
+        Assert(acknowledgements.Count == 1, "One acknowledgement");
+        Assert(acknowledgements[0] is AckMask, "Mask");
+        Assert(((AckMask)acknowledgements[0]).RelativeSequenceId == 5 && ((AckMask)acknowledgements[0]).Mask == ulong.MaxValue - (1<<1) - (1<<2), "Mask");
+    }
+
+    private static void TestAckRegisterDuplicate()
+    {
+        AckRegister ack = new();
+
+        Assert(ack.Receive(0), "First receive");
+        Assert(!ack.Receive(0), "Duplicate rejected");
+    }
+
+    private static void TestAckRegisterGapClosure()
+    {
+        AckRegister ack = new();
+
+        ack.Receive(0);
+        ack.Receive(1);
+        ack.Receive(2);
+        ack.Receive(5);
+        ack.Receive(6);
+
+        ack.Receive(3);
+        ack.Receive(4);
+
+        Assert(ack.HighestContiguousSequenceId == 6, "Gap closed to 6");
+        Assert(ack.SparseSequenceIds.Count == 0, "Sparse empty");
+    }
+
+    private static void TestAckRegisterPendingCleared()
+    {
+        AckRegister ack = new();
+
+        ack.Receive(0);
+        ack.Receive(1);
+        ack.Receive(2);
+
+        List<IAcknowledgement> acknowledgements = [];
+
+        ack.BuildAcknowledgements(acknowledgements);
+
+        Assert(ack.PendingAcknowledgements.Count == 0, "Pending cleared");
     }
 }

@@ -4,9 +4,11 @@ internal static class SequenceNumber
 {
     public static bool IsNewer(uint a, uint b)
     {
-        uint diff = a - b;
+        unchecked{
+            uint diff = a - b;
 
-        return diff > 0 && diff < 0x80000000u;
+            return diff > 0 && diff < 0x80000000u;
+        }
     }
 
     public static bool IsOlder(uint a, uint b)
