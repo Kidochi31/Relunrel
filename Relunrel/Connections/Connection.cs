@@ -1,5 +1,6 @@
 using System.Net;
 using Relunrel.Packets;
+using Relunrel.Channels;
 
 namespace Relunrel.Connections;
 
@@ -16,8 +17,30 @@ internal sealed class Connection
     private DateTime StateEnterTime;
     private int TimeoutCount;
 
+    private uint NextUnreliableOrderedSequenceId;
+
+    private readonly ReliableSender ReliableSender = new();
+
+    private readonly ReliableReceiver ReliableReceiver = new();
+
+    private readonly ReliableOrderedReceiver ReliableOrderedReceiver = new();
+
+    private readonly UnreliableOrderedReceiver UnreliableOrderedReceiver = new();
+
+    private readonly Queue<byte[]> ReceivedReliableUnorderedMessages = [];
+
+    private readonly Queue<byte[]> ReceivedReliableOrderedMessages = [];
+
+    private readonly Queue<byte[]> ReceivedUnreliableUnorderedMessages = [];
+
+    private readonly Queue<byte[]> ReceivedUnreliableOrderedMessages = [];
+
+    private readonly Queue<Record> PendingRecords = [];
 
     public bool PacketsAvailable => OutgoingPackets.Count > 0;
+
+    public bool ReliableUnorderedMessagesAvailable =>
+    ReceivedReliableUnorderedMessages.Count > 0;
 
     public static Connection CreatePassiveConnection(uint sessionId, uint connectionToken, IPEndPoint remoteEndPoint, DateTime time)
     {
@@ -53,6 +76,16 @@ internal sealed class Connection
         ConnectionToken = connectionToken;
         RemoteEndPoint = remoteEndPoint;
         SetState(initialState, time);
+    }
+
+    public byte[]? DequeueReliableUnorderedMessage()
+    {
+        if(ReceivedReliableUnorderedMessages.Count == 0)
+        {
+            return null;
+        }
+
+        return ReceivedReliableUnorderedMessages.Dequeue();
     }
 
     private void QueuePacket(PacketType type, DateTime time)
@@ -154,6 +187,104 @@ internal sealed class Connection
             case PacketType.Reset:
                 SetState(ConnectionState.Disconnected, time);
                 break;
+            
+            case PacketType.Message:
+                HandleMessagePacket(packet, time);
+                break;
+        }
+    }
+
+    private void HandleMessagePacket(Packet packet, DateTime time)
+    {
+        if(packet.Body is not MessagePacket messagePacket)
+        {
+            return;
+        }
+
+        foreach(Record record in messagePacket.Records)
+        {
+            switch(record)
+            {
+                case ReliableUnorderedRecord reliable:
+                    HandleReliableUnordered(reliable);
+                    break;
+                case ReliableOrderedRecord reliableOrdered:
+                    {
+                        if(ReliableReceiver.Receive(
+                            reliableOrdered.SequenceId,
+                            reliableOrdered.Payload))
+                        {
+                            ReliableOrderedReceiver.Receive(
+                                reliableOrdered.SequenceId,
+                                reliableOrdered.Payload);
+
+                            while(ReliableOrderedReceiver.MessagesAvailable)
+                            {
+                                (uint SequenceId, byte[] Payload)? message =
+                                    ReliableOrderedReceiver.DequeueMessage();
+
+                                if(message is not null)
+                                {
+                                    ReceivedReliableOrderedMessages.Enqueue(
+                                        message.Value.Payload);
+                                }
+                            }
+                        }
+
+                        break;
+                    }
+                case UnreliableOrderedRecord unreliableOrdered:
+                    {
+                        if(UnreliableOrderedReceiver.Receive(
+                            unreliableOrdered.SequenceId,
+                            unreliableOrdered.Payload))
+                        {
+                            while(UnreliableOrderedReceiver.MessagesAvailable)
+                            {
+                                (uint SequenceId, byte[] Payload)? message =
+                                    UnreliableOrderedReceiver.DequeueMessage();
+
+                                if(message is not null)
+                                {
+                                    ReceivedUnreliableOrderedMessages.Enqueue(
+                                        message.Value.Payload);
+                                }
+                            }
+                        }
+
+                        break;
+                    }
+                case UnreliableUnorderedRecord unreliableUnordered:
+                    {
+                        ReceivedUnreliableUnorderedMessages.Enqueue(
+                            unreliableUnordered.Payload);
+
+                        break;
+                    }
+                case AckContiguousRecord contiguous:
+                    ReliableSender.HandleAcknowledgementContiguous(
+                        contiguous.AcknowledgedSequenceId,
+                        time);
+                    break;
+
+                case AckMaskRecord mask:
+                    ReliableSender.HandleAcknowledgementMask(
+                        mask.RelativeSequenceId,
+                        mask.AckBitfield,
+                        time);
+                    break;
+            }
+        }
+    }
+
+    private void HandleReliableUnordered(ReliableUnorderedRecord record)
+    {
+        if(ReliableReceiver.Receive(
+            record.SequenceId,
+            record.Payload))
+        {
+            ReceivedReliableUnorderedMessages.Enqueue(
+                record.Payload);
         }
     }
 
@@ -228,6 +359,8 @@ internal sealed class Connection
                 TickTimeWait(time);
                 break;
         }
+        QueueAcknowledgements();
+        BuildMessagePackets(time);
     }
 
     private void TickActiveConnect(DateTime time)
@@ -270,6 +403,34 @@ internal sealed class Connection
 
     private void TickConnected(DateTime time)
     {
+        ReliableSender.Tick(time);
+
+        while(ReliableSender.RetransmissionsAvailable)
+        {
+            PendingMessage? message = ReliableSender.DequeueRetransmission();
+
+            if(message is null)
+            {
+                continue;
+            }
+
+            ReliableUnorderedRecord? record =
+                ReliableUnorderedRecord.Create(
+                    message.SequenceId,
+                    message.Payload);
+
+            if(record is not null)
+            {
+                QueueRecord(record);
+            }
+        }
+
+        if(ReliableSender.ResetRequired)
+        {
+            QueuePacket(PacketType.Reset, time);
+            SetState(ConnectionState.Disconnected, time);
+            return;
+        }
         if(time - LastReceiveTime >= Constants.ConnectionTimeout)
         {
             QueuePacket(PacketType.Reset, time);
@@ -338,4 +499,198 @@ internal sealed class Connection
         return OutgoingPackets.Dequeue();
     }
 
+    private void QueueRecord(Record record)
+    {
+        PendingRecords.Enqueue(record);
+    }
+
+    public bool SendReliableUnordered(byte[] payload, DateTime time)
+    {
+        if(State != ConnectionState.Connected)
+        {
+            return false;
+        }
+
+        uint sequenceId = ReliableSender.Send(payload, time);
+        
+        ReliableUnorderedRecord? record = ReliableUnorderedRecord.Create(sequenceId, payload);
+        if(record is null)
+        {
+            return false;
+        }
+        QueueRecord(record);
+
+        return true;
+    }
+
+    public bool SendReliableOrdered(byte[] payload, DateTime time)
+    {
+        if(State != ConnectionState.Connected)
+        {
+            return false;
+        }
+
+        uint sequenceId = ReliableSender.Send(payload, time);
+
+        ReliableOrderedRecord? record =
+            ReliableOrderedRecord.Create(
+                sequenceId,
+                payload);
+
+        if(record is null)
+        {
+            return false;
+        }
+
+        QueueRecord(record);
+
+        return true;
+    }
+
+    public bool SendUnreliableUnordered(byte[] payload)
+    {
+        if(State != ConnectionState.Connected)
+        {
+            return false;
+        }
+
+        UnreliableUnorderedRecord? record =
+            UnreliableUnorderedRecord.Create(
+                payload);
+
+        if(record is null)
+        {
+            return false;
+        }
+
+        QueueRecord(record);
+
+        return true;
+    }
+
+    private void BuildMessagePackets(DateTime time)
+    {
+        while(PendingRecords.Count > 0)
+        {
+            MessagePacket packet = new();
+
+            int size = PacketHeader.HeaderSize;
+
+            while(PendingRecords.Count > 0)
+            {
+                Record record = PendingRecords.Peek();
+
+                int recordSize = record.GetSerializedSize();
+
+                if(size + recordSize > Packet.MaximumPacketSize)
+                {
+                    break;
+                }
+
+                packet.Records.Add(record);
+
+                PendingRecords.Dequeue();
+
+                size += recordSize;
+            }
+
+            OutgoingPackets.Enqueue(
+                new Packet
+                {
+                    Header = new PacketHeader
+                    {
+                        ProtocolVersion=Constants.ProtocolVersion,
+                        SessionId=SessionId,
+                        ConnectionToken=ConnectionToken,
+                        PacketType=PacketType.Message
+                    },
+                    Body = packet
+                });
+        }
+    }
+
+    public bool SendUnreliableOrdered(byte[] payload)
+    {
+        if(State != ConnectionState.Connected)
+        {
+            return false;
+        }
+
+        UnreliableOrderedRecord? record =
+            UnreliableOrderedRecord.Create(
+                NextUnreliableOrderedSequenceId++,
+                payload);
+
+        if(record is null)
+        {
+            return false;
+        }
+
+        QueueRecord(record);
+
+        return true;
+    }
+
+    public bool UnreliableOrderedMessagesAvailable =>
+    ReceivedUnreliableOrderedMessages.Count > 0;
+
+    public byte[]? DequeueUnreliableOrderedMessage()
+    {
+        if(ReceivedUnreliableOrderedMessages.Count == 0)
+        {
+            return null;
+        }
+
+        return ReceivedUnreliableOrderedMessages.Dequeue();
+    }
+
+    public bool UnreliableUnorderedMessagesAvailable =>
+    ReceivedUnreliableUnorderedMessages.Count > 0;
+
+    public byte[]? DequeueUnreliableUnorderedMessage()
+    {
+        if(ReceivedUnreliableUnorderedMessages.Count == 0)
+        {
+            return null;
+        }
+
+        return ReceivedUnreliableUnorderedMessages.Dequeue();
+    }
+
+    public bool ReliableOrderedMessagesAvailable => ReceivedReliableOrderedMessages.Count > 0;
+
+    public byte[]? DequeueReliableOrderedMessage()
+    {
+        if(ReceivedReliableOrderedMessages.Count == 0)
+        {
+            return null;
+        }
+
+        return ReceivedReliableOrderedMessages.Dequeue();
+    }
+
+    private void QueueAcknowledgements()
+    {
+        List<IAcknowledgement> acknowledgements = [];
+
+        ReliableReceiver.BuildAcknowledgements(acknowledgements);
+
+        foreach(IAcknowledgement acknowledgement in acknowledgements)
+        {
+            switch(acknowledgement)
+            {
+                case AckContiguous contiguous:
+                    QueueRecord(
+                        new AckContiguousRecord(
+                            RecordType.AckContiguousReliableUnordered,contiguous.SequenceId));
+                    break;
+
+                case AckMask mask:
+                    QueueRecord(
+                        new AckMaskRecord(
+                            RecordType.AckMaskReliableUnordered,mask.RelativeSequenceId,mask.Mask));
+                    break;
+            }
+        }
+    }
 }

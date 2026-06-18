@@ -10,12 +10,29 @@ internal sealed class AckRegister
 {
     internal uint HighestContiguousSequenceId = uint.MaxValue;
 
+    public uint ReceiveWindowSize { get; set; } = 4096;
+
     internal readonly HashSet<uint> SparseSequenceIds = [];
 
     internal readonly SortedSet<uint> PendingAcknowledgements = [];
+    
+    private bool IsWithinReceiveWindow(uint sequenceId)
+    {
+        uint oldestAllowedSequenceId = HighestContiguousSequenceId - ReceiveWindowSize;
+        uint newestAllowedSequenceId = HighestContiguousSequenceId + ReceiveWindowSize;
+
+        return !SequenceNumber.IsOlder(sequenceId, oldestAllowedSequenceId)
+            && !SequenceNumber.IsNewer(sequenceId, newestAllowedSequenceId);
+    }
 
     public bool Receive(uint sequenceId)
     {
+
+        if(!IsWithinReceiveWindow(sequenceId))
+        {
+            return false;
+        }
+
         if(Contains(sequenceId))
         {
             PendingAcknowledgements.Add(sequenceId);

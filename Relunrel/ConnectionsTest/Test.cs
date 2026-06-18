@@ -25,12 +25,38 @@ public class Test{
         TestTimeWaitDuplicateRespondFin();
         TestHeartbeatPreventsTimeout();
         TestHeartbeatResetsTimeout();
-        TestReliableUnorderedChannel();
         TestAckRegisterContiguous();
         TestAckRegisterSparse();
         TestAckRegisterDuplicate();
         TestAckRegisterGapClosure();
         TestAckRegisterPendingCleared();
+        TestReliableSendReceive();
+        TestReliableDuplicateMessage();
+        TestReliableContiguousAcknowledgement();
+        TestReliableMaskAcknowledgement();
+        TestDuplicateGeneratesAcknowledgement();
+        TestReliableSparseAcknowledgement();
+        TestReliableRetransmission();
+        TestReliableAcknowledgedNotRetransmitted();
+        TestReliableRetryLimit();
+        TestReliableRttMeasurement();
+        TestReliableOrderedInOrder();
+        TestReliableOrderedOutOfOrder();
+        TestReliableOrderedGapClosure();
+        TestUnreliableOrdered();
+        TestReliableOrderedDuplicate();
+        TestSendReliableUnordered();
+        TestReliableUnorderedDelivery();
+        TestReliableAckGeneration();
+        TestReliableAcknowledgementFlow();
+        TestReliableOrderedReordering();
+        TestUnreliableOrderedDropsOld();
+        TestReliableOrderedDelivery();
+        TestAckRegisterReceiveWindow();
+        TestReliableUnorderedStress();
+        TestReliableOrderedStress();
+        TestSequenceWraparound();
+        TestReliableLossDuplicationStress();
     }
 
     public static void TestConnectionHandshake()
@@ -583,38 +609,6 @@ public class Test{
         Console.WriteLine("PASS: Heartbeat resets timeout");
     }
 
-    private static void TestReliableUnorderedChannel()
-    {
-        ReliableUnorderedChannel sender = new();
-        ReliableUnorderedChannel receiver = new();
-
-        ReliableUnorderedRecord message =
-            sender.Send(new byte[]
-            {
-                1, 2, 3, 4
-            });
-
-        receiver.HandleReliableMessage(message);
-
-        Assert(receiver.ReceivedMessageCount == 1, "Message received");
-
-        AckContiguousRecord ack =
-            receiver.BuildAck();
-
-        sender.HandleAck(ack);
-
-        Assert(sender.PendingMessageCount == 0, "Message acknowledged");
-
-        Assert(receiver.TryDequeueMessage(out byte[] payload), "Payload dequeued");
-
-        Assert(payload.SequenceEqual(new byte[]
-        {
-            1, 2, 3, 4
-        }), "Payload correct");
-
-        Console.WriteLine("PASS: ReliableUnorderedChannel");
-    }
-
     private static void TestAckRegisterContiguous()
     {
         AckRegister ack = new();
@@ -680,6 +674,27 @@ public class Test{
 
         Assert(ack.HighestContiguousSequenceId == 6, "Gap closed to 6");
         Assert(ack.SparseSequenceIds.Count == 0, "Sparse empty");
+
+        ack = new();
+
+        ack.Receive(0);
+        ack.Receive(1);
+        ack.Receive(2);
+
+        ack.Receive(5);
+        ack.Receive(6);
+
+        Assert(ack.HighestContiguousSequenceId == 2, "Contiguous ends at 2");
+        Assert(ack.SparseSequenceIds.Contains(5), "Contains 5");
+        Assert(ack.SparseSequenceIds.Contains(6), "Contains 6");
+
+        ack.Receive(3);
+        ack.Receive(4);
+
+        Assert(ack.HighestContiguousSequenceId == 6, "Gap closed to 6");
+        Assert(ack.SparseSequenceIds.Count == 0, "Sparse empty");
+
+        Console.WriteLine("PASS: Ack gap closure");
     }
 
     private static void TestAckRegisterPendingCleared()
@@ -695,5 +710,804 @@ public class Test{
         ack.BuildAcknowledgements(acknowledgements);
 
         Assert(ack.PendingAcknowledgements.Count == 0, "Pending cleared");
+    }
+
+    private static void TestReliableSendReceive()
+    {
+        DateTime time = DateTime.UtcNow;
+
+        ReliableSender sender = new();
+        ReliableReceiver receiver = new();
+
+        byte[] payload = [1, 2, 3, 4];
+
+        uint sequenceId = sender.Send(payload, time);
+
+        Assert(sender.PendingMessageCount == 1, "Sender has pending message");
+
+        receiver.Receive(sequenceId, payload);
+
+        Assert(receiver.MessagesAvailable, "Receiver got message");
+        (uint receivedSequenceId, byte[] receivedPayload) = ((uint, byte[]))receiver.DequeueMessage();
+        Assert(receivedSequenceId == sequenceId, "Sequence IDs match");
+        Assert(receivedPayload.SequenceEqual(payload), "Payloads match");
+
+        List<IAcknowledgement> acknowledgements = [];
+
+        receiver.BuildAcknowledgements(acknowledgements);
+
+        foreach(IAcknowledgement acknowledgement in acknowledgements)
+        {
+            switch(acknowledgement)
+            {
+                case AckContiguous contiguous:
+                    sender.HandleAcknowledgementContiguous(contiguous.SequenceId, time);
+                    break;
+
+                case AckMask mask:
+                    sender.HandleAcknowledgementMask(mask.RelativeSequenceId, mask.Mask, time);
+                    break;
+            }
+        }
+
+        Assert(sender.PendingMessageCount == 0, "Message acknowledged");
+
+        Console.WriteLine("PASS: Reliable send receive");
+    }
+
+    private static void TestReliableDuplicateMessage()
+    {
+        ReliableReceiver receiver = new();
+
+        Assert(receiver.Receive(0, [1]), "First receive");
+        Assert(!receiver.Receive(0, [2]), "Duplicate receive");
+
+        Assert(receiver.MessagesAvailable, "Message available");
+
+        (uint sequenceId, byte[] payload)? message = receiver.DequeueMessage();
+
+        Assert(message != null, "Message exists");
+        Assert(message.Value.sequenceId == 0, "Sequence id correct");
+        Assert(message.Value.payload.AsSpan().SequenceEqual(new byte[]{1}), "Original payload preserved");
+
+        Assert(!receiver.MessagesAvailable, "Only one message queued");
+
+        Console.WriteLine("PASS: Reliable duplicate message");
+    }
+
+    private static void TestReliableContiguousAcknowledgement()
+    {
+        DateTime time = DateTime.UtcNow;
+
+        ReliableSender sender = new();
+
+        sender.Send([0], time);
+        sender.Send([1], time);
+        sender.Send([2], time);
+        sender.Send([3], time);
+
+        sender.HandleAcknowledgementContiguous(2, time);
+
+        Assert(!sender.HasPendingMessage(0), "0 removed");
+        Assert(!sender.HasPendingMessage(1), "1 removed");
+        Assert(!sender.HasPendingMessage(2), "2 removed");
+
+        Assert(sender.HasPendingMessage(3), "3 remains");
+
+        Console.WriteLine("PASS: Reliable contiguous acknowledgement");
+    }
+
+    private static void TestReliableMaskAcknowledgement()
+    {
+        DateTime time = DateTime.UtcNow;
+
+        ReliableSender sender = new();
+
+        sender.Send([0], time);
+        sender.Send([1], time);
+        sender.Send([2], time);
+        sender.Send([3], time);
+        sender.Send([4], time);
+        sender.Send([5], time);
+
+        ulong mask = 0;
+
+        mask |= 1UL << 0;
+        mask |= 1UL << 2;
+        mask |= 1UL << 5;
+
+        sender.HandleAcknowledgementMask(5, mask, time);
+
+        Assert(!sender.HasPendingMessage(5), "5 removed");
+        Assert(!sender.HasPendingMessage(3), "3 removed");
+        Assert(!sender.HasPendingMessage(0), "0 removed");
+
+        Assert(sender.HasPendingMessage(1), "1 remains");
+        Assert(sender.HasPendingMessage(2), "2 remains");
+        Assert(sender.HasPendingMessage(4), "4 remains");
+
+        Console.WriteLine("PASS: Reliable mask acknowledgement");
+    }
+
+    private static void TestDuplicateGeneratesAcknowledgement()
+    {
+        AckRegister ack = new();
+
+        ack.Receive(0);
+
+        List<IAcknowledgement> acknowledgements = [];
+
+        ack.BuildAcknowledgements(acknowledgements);
+
+        Assert(acknowledgements.Count > 0, "Initial ack generated");
+
+        acknowledgements.Clear();
+
+        ack.Receive(0);
+
+        ack.BuildAcknowledgements(acknowledgements);
+
+        Assert(acknowledgements.Count > 0, "Duplicate generates ack");
+
+        Console.WriteLine("PASS: Duplicate generates acknowledgement");
+    }
+
+    private static void TestReliableSparseAcknowledgement()
+    {
+        DateTime time = DateTime.UtcNow;
+
+        ReliableSender sender = new();
+        ReliableReceiver receiver = new();
+
+        sender.Send([0], time);
+        sender.Send([1], time);
+        sender.Send([2], time);
+        sender.Send([3], time);
+        sender.Send([4], time);
+        sender.Send([5], time);
+
+        receiver.Receive(0, [0]);
+        receiver.Receive(1, [1]);
+        receiver.Receive(3, [3]);
+        receiver.Receive(5, [5]);
+
+        List<IAcknowledgement> acknowledgements = [];
+
+        receiver.BuildAcknowledgements(acknowledgements);
+
+        foreach(IAcknowledgement acknowledgement in acknowledgements)
+        {
+            switch(acknowledgement)
+            {
+                case AckContiguous contiguous:
+                    sender.HandleAcknowledgementContiguous(contiguous.SequenceId, time);
+                    break;
+
+                case AckMask mask:
+                    sender.HandleAcknowledgementMask(mask.RelativeSequenceId, mask.Mask, time);
+                    break;
+            }
+        }
+
+        Assert(!sender.HasPendingMessage(0), "0 acknowledged");
+        Assert(!sender.HasPendingMessage(1), "1 acknowledged");
+
+        Assert(sender.HasPendingMessage(2), "2 still pending");
+        Assert(sender.HasPendingMessage(4), "4 still pending");
+
+        Console.WriteLine("PASS: Reliable sparse acknowledgement");
+    }
+
+    private static void TestReliableRetransmission()
+    {
+        DateTime time = DateTime.UtcNow;
+
+        ReliableSender sender = new();
+
+        sender.Send([1], time);
+
+        time += sender.RetransmissionTimeout;
+
+        sender.Tick(time);
+
+        Assert(sender.RetransmissionsAvailable, "Retransmission queued");
+
+        PendingMessage? message = sender.DequeueRetransmission();
+
+        Assert(message != null, "Message exists");
+        Assert(message.SequenceId == 0, "Correct sequence");
+
+        Console.WriteLine("PASS: Reliable retransmission");
+    }
+
+    private static void TestReliableAcknowledgedNotRetransmitted()
+    {
+        DateTime time = DateTime.UtcNow;
+
+        ReliableSender sender = new();
+
+        sender.Send([1], time);
+
+        sender.HandleAcknowledgementContiguous(0, time);
+
+        time += sender.RetransmissionTimeout * 2;
+
+        sender.Tick(time);
+
+        Assert(!sender.RetransmissionsAvailable, "No retransmission");
+
+        Console.WriteLine("PASS: ACK prevents retransmission");
+    }
+
+    private static void TestReliableRetryLimit()
+    {
+        DateTime time = DateTime.UtcNow;
+
+        ReliableSender sender = new();
+
+        sender.MaximumRetransmissions = 3;
+
+        sender.Send([1], time);
+
+        for(int i = 0; i < 4; i++)
+        {
+            time += sender.RetransmissionTimeout;
+
+            sender.Tick(time);
+
+            while(sender.RetransmissionsAvailable)
+            {
+                sender.DequeueRetransmission();
+            }
+        }
+
+        Assert(sender.ResetRequired, "Reset required");
+
+        Console.WriteLine("PASS: Retry limit");
+    }
+
+    private static void TestReliableRttMeasurement()
+    {
+        DateTime time = DateTime.UtcNow;
+
+        ReliableSender sender = new();
+
+        sender.Send([1], time);
+
+        time += TimeSpan.FromMilliseconds(100);
+
+        sender.HandleAcknowledgementContiguous(0, time);
+
+        Assert(sender.EstimatedRtt != null, "RTT calculated");
+
+        Assert(sender.EstimatedRtt.Value >= TimeSpan.FromMilliseconds(90), "RTT reasonable");
+        Assert(sender.EstimatedRtt.Value <= TimeSpan.FromMilliseconds(110), "RTT reasonable");
+
+        Console.WriteLine("PASS: RTT measurement");
+    }
+
+    private static void TestReliableOrderedInOrder()
+    {
+        ReliableOrderedReceiver receiver = new();
+
+        receiver.Receive(0, [0]);
+        receiver.Receive(1, [1]);
+        receiver.Receive(2, [2]);
+
+        Assert(receiver.MessagesAvailable, "Messages available");
+
+        Assert(receiver.DequeueMessage()!.Value.SequenceId == 0, "0");
+        Assert(receiver.DequeueMessage()!.Value.SequenceId == 1, "1");
+        Assert(receiver.DequeueMessage()!.Value.SequenceId == 2, "2");
+
+        Console.WriteLine("PASS: Reliable ordered in order");
+    }
+
+    private static void TestReliableOrderedOutOfOrder()
+    {
+        ReliableOrderedReceiver receiver = new();
+
+        receiver.Receive(0, [0]);
+        receiver.Receive(2, [2]);
+
+        Assert(receiver.MessagesAvailable, "0 available");
+
+        Assert(receiver.DequeueMessage()!.Value.SequenceId == 0, "0");
+
+        Assert(!receiver.MessagesAvailable, "2 buffered");
+
+        receiver.Receive(1, [1]);
+
+        Assert(receiver.MessagesAvailable, "1 available");
+
+        Assert(receiver.DequeueMessage()!.Value.SequenceId == 1, "1");
+        Assert(receiver.DequeueMessage()!.Value.SequenceId == 2, "2");
+
+        Console.WriteLine("PASS: Reliable ordered out of order");
+    }
+
+    private static void TestReliableOrderedGapClosure()
+    {
+        ReliableOrderedReceiver receiver = new();
+
+        receiver.Receive(2, [2]);
+        receiver.Receive(4, [4]);
+        receiver.Receive(3, [3]);
+
+        Assert(receiver.BufferedCount == 3, "Three buffered");
+
+        receiver.Receive(0, [0]);
+        receiver.Receive(1, [1]);
+
+        Assert(receiver.DequeueMessage()!.Value.SequenceId == 0, "0");
+        Assert(receiver.DequeueMessage()!.Value.SequenceId == 1, "1");
+        Assert(receiver.DequeueMessage()!.Value.SequenceId == 2, "2");
+        Assert(receiver.DequeueMessage()!.Value.SequenceId == 3, "3");
+        Assert(receiver.DequeueMessage()!.Value.SequenceId == 4, "4");
+
+        Console.WriteLine("PASS: Reliable ordered gap closure");
+    }
+
+    private static void TestUnreliableOrdered()
+    {
+        UnreliableOrderedReceiver receiver = new();
+
+        Assert(receiver.Receive(5, [5]), "Receive 5");
+        Assert(receiver.Receive(7, [7]), "Receive 7");
+
+        Assert(!receiver.Receive(6, [6]), "6 dropped");
+
+        Assert(receiver.Receive(8, [8]), "Receive 8");
+
+        Assert(receiver.DequeueMessage()!.Value.SequenceId == 5, "5");
+        Assert(receiver.DequeueMessage()!.Value.SequenceId == 7, "7");
+        Assert(receiver.DequeueMessage()!.Value.SequenceId == 8, "8");
+
+        Assert(!receiver.MessagesAvailable, "No more");
+
+        Console.WriteLine("PASS: Unreliable ordered");
+    }
+
+    private static void TestReliableOrderedDuplicate()
+    {
+        ReliableOrderedReceiver receiver = new();
+
+        receiver.Receive(0, [0]);
+
+        Assert(!receiver.Receive(0, [0]), "Duplicate rejected");
+
+        Console.WriteLine("PASS: Reliable ordered duplicate");
+    }
+
+    private static void TestSendReliableUnordered()
+    {
+        DateTime time = DateTime.UtcNow;
+
+        CreateConnectedPair(out Connection client, out Connection server, time);
+
+        Assert(
+            client.SendReliableUnordered(
+                [1, 2, 3],
+                time),
+            "Send succeeds");
+
+        client.Tick(time);
+
+        Assert(
+            client.PacketsAvailable,
+            "Message packet created");
+
+        Packet packet =
+            client.DequeuePacket()!;
+
+        Assert(
+            packet.Header.PacketType ==
+            PacketType.Message,
+            "Packet type correct");
+
+        MessagePacket body =
+            (MessagePacket)packet.Body!;
+
+        Assert(
+            body.Records.Count == 1,
+            "One record");
+
+        Assert(
+            body.Records[0] is ReliableUnorderedRecord,
+            "Record type");
+
+        Console.WriteLine("PASS: Send reliable unordered");
+    }
+
+    private static void TestReliableUnorderedDelivery()
+    {
+        DateTime time = DateTime.UtcNow;
+
+        CreateConnectedPair(out Connection client, out Connection server, time);
+
+
+        client.SendReliableUnordered(
+            [1, 2, 3],
+            time);
+
+        client.Tick(time);
+
+        Packet packet =
+            client.DequeuePacket()!;
+
+        server.HandlePacket(
+            packet,
+            time);
+
+        Assert(
+            server.ReliableUnorderedMessagesAvailable,
+            "Message received");
+
+        byte[]? payload =
+            server.DequeueReliableUnorderedMessage();
+
+        Assert(
+            payload != null,
+            "Payload exists");
+
+        Assert(
+            payload.SequenceEqual(new byte[]{1, 2, 3}),
+            "Payload correct");
+
+        Console.WriteLine(
+            "PASS: Reliable unordered delivery");
+    }
+
+    private static void TestReliableAckGeneration()
+    {
+        DateTime time = DateTime.UtcNow;
+
+        CreateConnectedPair(out Connection client, out Connection server, time);
+
+        MessagePacket packet =
+            new MessagePacket();
+
+        packet.Records.Add(
+            ReliableUnorderedRecord.Create(
+                0,
+                [1])!);
+
+        server.HandlePacket(
+            new Packet
+            {
+                Header = new PacketHeader
+                {
+                    ProtocolVersion =
+                        Constants.ProtocolVersion,
+                    SessionId = 1,
+                    ConnectionToken = 1,
+                    PacketType = PacketType.Message
+                },
+                Body = packet
+            },
+            time);
+
+        server.Tick(time);
+
+        bool foundAck = false;
+
+        while(server.PacketsAvailable)
+        {
+            Packet outgoing =
+                server.DequeuePacket();
+
+            if(outgoing.Header.PacketType ==
+                PacketType.Message)
+            {
+                MessagePacket body =
+                    (MessagePacket)outgoing.Body!;
+
+                foundAck =
+                    body.Records.Any(
+                        r => r is AckContiguousRecord ||
+                            r is AckMaskRecord);
+            }
+        }
+
+        Assert(foundAck, "ACK generated");
+
+        Console.WriteLine(
+            "PASS: Reliable ACK generation");
+    }
+
+    private static void TestReliableAcknowledgementFlow()
+    {
+        DateTime time = DateTime.UtcNow;
+
+        CreateConnectedPair(out Connection client, out Connection server, time);
+
+        client.SendReliableUnordered(
+            [1, 2, 3],
+            time);
+
+        client.Tick(time);
+
+        Packet data =
+            client.DequeuePacket()!;
+
+        server.HandlePacket(
+            data,
+            time);
+
+        server.Tick(time);
+
+        Packet ack =
+            server.DequeuePacket()!;
+
+        client.HandlePacket(
+            ack,
+            time);
+
+        Assert(
+            !client.ReliableUnorderedMessagesAvailable,
+            "Message acknowledged");
+
+        Console.WriteLine(
+            "PASS: Reliable acknowledgement flow");
+    }
+
+    private static void TestReliableOrderedReordering()
+    {
+        ReliableOrderedReceiver receiver = new();
+
+        receiver.Receive(0, [0]);
+        receiver.Receive(2, [2]);
+
+        Assert(receiver.MessagesAvailable, "0 available");
+
+        receiver.DequeueMessage();
+
+        Assert(!receiver.MessagesAvailable, "2 buffered");
+
+        receiver.Receive(1, [1]);
+
+        Assert(receiver.MessagesAvailable, "1 available");
+
+        Assert(receiver.DequeueMessage()!.Value.SequenceId == 1, "1");
+        Assert(receiver.DequeueMessage()!.Value.SequenceId == 2, "2");
+
+        Console.WriteLine("PASS: Reliable ordered reordering");
+    }
+
+    private static void TestUnreliableOrderedDropsOld()
+    {
+        UnreliableOrderedReceiver receiver = new();
+
+        Assert(receiver.Receive(0, [0]), "0");
+        Assert(receiver.Receive(2, [2]), "2");
+
+        Assert(!receiver.Receive(1, [1]), "1 dropped");
+
+        Console.WriteLine("PASS: Unreliable ordered drop");
+    }
+
+    private static void TestReliableOrderedDelivery()
+    {
+        DateTime time = DateTime.UtcNow;
+
+        CreateConnectedPair(out Connection sender, out Connection receiver, time);
+
+        sender.SendReliableOrdered([1, 2, 3], time);
+
+        sender.Tick(time);
+
+        Packet packet = sender.DequeuePacket()!;
+
+        receiver.HandlePacket(packet, time);
+
+        Assert(
+            receiver.ReliableOrderedMessagesAvailable,
+            "Message received");
+
+        byte[]? payload =
+            receiver.DequeueReliableOrderedMessage();
+
+        Assert(
+            payload != null &&
+            payload.SequenceEqual(new byte[]{1, 2, 3}),
+            "Payload correct");
+
+        Console.WriteLine("PASS: Reliable ordered delivery");
+    }
+
+    private static void TestAckRegisterReceiveWindow()
+    {
+        AckRegister ack = new()
+        {
+            ReceiveWindowSize = 32
+        };
+
+        ack.Receive(0);
+
+        Assert(!ack.Receive(1000), "Outside receive window rejected");
+
+        Assert(ack.Receive(1), "Inside window accepted");
+
+        Console.WriteLine("PASS: Ack receive window");
+    }
+
+    private static void TestReliableUnorderedStress()
+    {
+        DateTime time = DateTime.UtcNow;
+
+        CreateConnectedPair(out Connection sender, out Connection receiver, time);
+
+        const int messageCount = 1000;
+
+        for(int i = 0; i < messageCount; i++)
+        {
+            sender.SendReliableUnordered(BitConverter.GetBytes(i), time);
+        }
+
+        sender.Tick(time);
+
+        List<Packet> packets = [];
+
+        while(sender.PacketsAvailable)
+        {
+            packets.Add(sender.DequeuePacket()!);
+        }
+
+        foreach(Packet packet in packets)
+        {
+            receiver.HandlePacket(packet, time);
+        }
+
+        HashSet<int> received = [];
+
+        while(receiver.ReliableUnorderedMessagesAvailable)
+        {
+            byte[] payload = receiver.DequeueReliableUnorderedMessage()!;
+
+            received.Add(BitConverter.ToInt32(payload));
+        }
+
+        Assert(received.Count == messageCount, "All messages received");
+
+        Console.WriteLine("PASS: Reliable unordered stress");
+    }
+
+    private static void TestReliableOrderedStress()
+    {
+        DateTime time = DateTime.UtcNow;
+
+        CreateConnectedPair(out Connection sender, out Connection receiver, time);
+
+
+        const int messageCount = 1000;
+
+        for(int i = 0; i < messageCount; i++)
+        {
+            sender.SendReliableOrdered(BitConverter.GetBytes(i), time);
+        }
+
+        sender.Tick(time);
+
+        List<Packet> packets = [];
+
+        while(sender.PacketsAvailable)
+        {
+            packets.Add(sender.DequeuePacket()!);
+        }
+
+        Packet[] packetArray = packets.ToArray();
+        
+        Random.Shared.Shuffle(packetArray);
+
+        foreach(Packet packet in packetArray)
+        {
+            receiver.HandlePacket(packet, time);
+        }
+
+        int expected = 0;
+
+        while(receiver.ReliableOrderedMessagesAvailable)
+        {
+            byte[] payload = receiver.DequeueReliableOrderedMessage()!;
+
+            int value = BitConverter.ToInt32(payload);
+
+            Assert(value == expected, $"Expected {expected}, got {value}");
+
+            expected++;
+        }
+
+        Assert(expected == messageCount, "All messages delivered");
+
+        Console.WriteLine("PASS: Reliable ordered stress");
+    }
+
+    private static void TestSequenceWraparound()
+    {
+        ReliableSender sender = new();
+
+        typeof(ReliableSender)
+            .GetField("NextSequenceId", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .SetValue(sender, uint.MaxValue - 2);
+
+        DateTime time = DateTime.UtcNow;
+
+        uint a = sender.Send([0], time);
+        uint b = sender.Send([0], time);
+        uint c = sender.Send([0], time);
+        uint d = sender.Send([0], time);
+        uint e = sender.Send([0], time);
+
+        Assert(a == uint.MaxValue - 2, "A");
+        Assert(b == uint.MaxValue - 1, "B");
+        Assert(c == uint.MaxValue, "C");
+        Assert(d == 0, "D");
+        Assert(e == 1, "E");
+
+        Console.WriteLine("PASS: Sequence wraparound");
+    }
+
+    private static void TestReliableLossDuplicationStress()
+    {
+        DateTime time = DateTime.UtcNow;
+
+        CreateConnectedPair(out Connection sender, out Connection receiver, time);
+
+        const int messageCount = 1000;
+
+        for(int i = 0; i < messageCount; i++)
+        {
+            sender.SendReliableUnordered(BitConverter.GetBytes(i), time);
+        }
+
+        Random random = new(1234);
+
+        HashSet<int> delivered = [];
+
+        for(int tick = 0; tick < 1000; tick++)
+        {
+            sender.Tick(time);
+            receiver.Tick(time);
+
+            List<Packet> packets = [];
+
+            while(sender.PacketsAvailable)
+            {
+                packets.Add(sender.DequeuePacket()!);
+            }
+
+            foreach(Packet packet in packets)
+            {
+                if(random.NextDouble() < 0.1)
+                {
+                    continue;
+                }
+
+                receiver.HandlePacket(packet, time);
+
+                if(random.NextDouble() < 0.1)
+                {
+                    receiver.HandlePacket(packet, time);
+                }
+            }
+
+            while(receiver.ReliableUnorderedMessagesAvailable)
+            {
+                byte[] payload = receiver.DequeueReliableUnorderedMessage()!;
+
+                delivered.Add(BitConverter.ToInt32(payload));
+            }
+
+            time += TimeSpan.FromMilliseconds(50);
+
+            if(delivered.Count == messageCount)
+            {
+                break;
+            }
+        }
+
+        Assert(delivered.Count == messageCount, "All messages delivered");
+
+        Console.WriteLine("PASS: Reliable loss duplication stress");
     }
 }
