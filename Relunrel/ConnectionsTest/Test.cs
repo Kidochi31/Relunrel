@@ -1,5 +1,6 @@
 using System.Net;
 using Relunrel.Connections;
+using Relunrel.Channels;
 using static Relunrel.Tests.TestHelpers;
 using Relunrel.Packets;
 
@@ -24,6 +25,7 @@ public class Test{
         TestTimeWaitDuplicateRespondFin();
         TestHeartbeatPreventsTimeout();
         TestHeartbeatResetsTimeout();
+        TestReliableUnorderedChannel();
     }
 
     public static void TestConnectionHandshake()
@@ -574,5 +576,37 @@ public class Test{
         Assert(client.State == ConnectionState.Connected, "Still connected");
 
         Console.WriteLine("PASS: Heartbeat resets timeout");
+    }
+
+    private static void TestReliableUnorderedChannel()
+    {
+        ReliableUnorderedChannel sender = new();
+        ReliableUnorderedChannel receiver = new();
+
+        ReliableUnorderedRecord message =
+            sender.Send(new byte[]
+            {
+                1, 2, 3, 4
+            });
+
+        receiver.HandleReliableMessage(message);
+
+        Assert(receiver.ReceivedMessageCount == 1, "Message received");
+
+        AckContiguousRecord ack =
+            receiver.BuildAck();
+
+        sender.HandleAck(ack);
+
+        Assert(sender.PendingMessageCount == 0, "Message acknowledged");
+
+        Assert(receiver.TryDequeueMessage(out byte[] payload), "Payload dequeued");
+
+        Assert(payload.SequenceEqual(new byte[]
+        {
+            1, 2, 3, 4
+        }), "Payload correct");
+
+        Console.WriteLine("PASS: ReliableUnorderedChannel");
     }
 }

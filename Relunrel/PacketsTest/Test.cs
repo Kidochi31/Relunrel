@@ -72,7 +72,6 @@ public static class Test{
 
         var original =
             UnreliableUnorderedRecord.Create(
-                7,
                 payload);
 
         Assert(original != null, "Create");
@@ -96,7 +95,6 @@ public static class Test{
         var result =
             (UnreliableUnorderedRecord)record!;
 
-        Assert(result.ChannelId == 7, "ChannelId");
         Assert(result.Payload.SequenceEqual(payload), "Payload");
     }
 
@@ -109,7 +107,6 @@ public static class Test{
 
         var original =
             ReliableOrderedRecord.Create(
-                12,
                 345,
                 payload);
 
@@ -134,7 +131,6 @@ public static class Test{
         var result =
             (ReliableOrderedRecord)record!;
 
-        Assert(result.ChannelId == 12, "ChannelId");
         Assert(result.SequenceId == 345, "SequenceId");
         Assert(result.Payload.SequenceEqual(payload), "Payload");
     }
@@ -144,7 +140,6 @@ public static class Test{
         AckMaskRecord original =
             new(
                 RecordType.AckMaskReliableOrdered,
-                5,
                 100,
                 0xAABBCCDDEEFF0011UL);
 
@@ -167,7 +162,6 @@ public static class Test{
         var result =
             (AckMaskRecord)record!;
 
-        Assert(result.ChannelId == 5, "ChannelId");
         Assert(result.RelativeSequenceId == 100, "RelativeSequenceId");
         Assert(result.AckBitfield == 0xAABBCCDDEEFF0011UL, "AckBitfield");
     }
@@ -177,7 +171,6 @@ public static class Test{
         AckContiguousRecord original =
             new(
                 RecordType.AckContiguousReliableOrdered,
-                17,
                 999);
 
         byte[] buffer =
@@ -199,7 +192,6 @@ public static class Test{
         var result =
             (AckContiguousRecord)record!;
 
-        Assert(result.ChannelId == 17, "ChannelId");
         Assert(result.AcknowledgedSequenceId == 999, "Ack");
     }
 
@@ -209,7 +201,6 @@ public static class Test{
 
         body.AddRecord(
             ReliableOrderedRecord.Create(
-                1,
                 10,
                 new byte[]
                 {
@@ -218,7 +209,6 @@ public static class Test{
 
         body.AddRecord(
             ReliableUnorderedRecord.Create(
-                2,
                 20,
                 new byte[]
                 {
@@ -228,7 +218,6 @@ public static class Test{
         body.AddRecord(
             new AckContiguousRecord(
                 RecordType.AckContiguousReliableOrdered,
-                1,
                 9));
 
         Packet packet = new()
@@ -349,7 +338,6 @@ public static class Test{
                 UnreliableUnorderedRecord b =
                     (UnreliableUnorderedRecord)actual;
 
-                Assert(a.ChannelId == b.ChannelId, "ChannelId");
                 Assert(a.Payload.SequenceEqual(b.Payload), "Payload");
 
                 break;
@@ -362,7 +350,6 @@ public static class Test{
                 UnreliableOrderedRecord b =
                     (UnreliableOrderedRecord)actual;
 
-                Assert(a.ChannelId == b.ChannelId, "ChannelId");
                 Assert(a.SequenceId == b.SequenceId, "SequenceId");
                 Assert(a.Payload.SequenceEqual(b.Payload), "Payload");
 
@@ -376,7 +363,6 @@ public static class Test{
                 ReliableUnorderedRecord b =
                     (ReliableUnorderedRecord)actual;
 
-                Assert(a.ChannelId == b.ChannelId, "ChannelId");
                 Assert(a.SequenceId == b.SequenceId, "SequenceId");
                 Assert(a.Payload.SequenceEqual(b.Payload), "Payload");
 
@@ -390,7 +376,6 @@ public static class Test{
                 ReliableOrderedRecord b =
                     (ReliableOrderedRecord)actual;
 
-                Assert(a.ChannelId == b.ChannelId, "ChannelId");
                 Assert(a.SequenceId == b.SequenceId, "SequenceId");
                 Assert(a.Payload.SequenceEqual(b.Payload), "Payload");
 
@@ -404,7 +389,6 @@ public static class Test{
                 AckMaskRecord b =
                     (AckMaskRecord)actual;
 
-                Assert(a.ChannelId == b.ChannelId, "ChannelId");
                 Assert(a.RelativeSequenceId == b.RelativeSequenceId, "RelativeSequenceId");
                 Assert(a.AckBitfield == b.AckBitfield, "AckBitfield");
 
@@ -418,7 +402,6 @@ public static class Test{
                 AckContiguousRecord b =
                     (AckContiguousRecord)actual;
 
-                Assert(a.ChannelId == b.ChannelId, "ChannelId");
                 Assert(a.AcknowledgedSequenceId == b.AcknowledgedSequenceId, "AcknowledgedSequenceId");
 
                 break;
@@ -445,31 +428,26 @@ public static class Test{
 
     private static Record RandomRecord(Random random)
     {
-        ushort channel = (ushort)random.Next(0, ushort.MaxValue + 1);
         uint sequence = (uint)random.NextInt64(uint.MaxValue + 1L);
 
         switch(random.Next(6))
         {
             case 0:
                 return UnreliableUnorderedRecord.Create(
-                    channel,
                     RandomPayload(random))!;
 
             case 1:
                 return UnreliableOrderedRecord.Create(
-                    channel,
                     sequence,
                     RandomPayload(random))!;
 
             case 2:
                 return ReliableUnorderedRecord.Create(
-                    channel,
                     sequence,
                     RandomPayload(random))!;
 
             case 3:
                 return ReliableOrderedRecord.Create(
-                    channel,
                     sequence,
                     RandomPayload(random))!;
 
@@ -478,7 +456,6 @@ public static class Test{
                     (RecordType)random.Next(
                         (int)RecordType.AckMaskReliableOrdered,
                         (int)RecordType.AckMaskReliableUnordered + 1),
-                    channel,
                     sequence,
                     (ulong)random.NextInt64());
 
@@ -487,7 +464,6 @@ public static class Test{
                     (RecordType)random.Next(
                         (int)RecordType.AckContiguousReliableOrdered,
                         (int)RecordType.AckContiguousReliableUnordered + 1),
-                    channel,
                     sequence);
         }
     }

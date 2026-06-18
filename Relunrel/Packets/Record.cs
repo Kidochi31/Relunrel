@@ -68,7 +68,6 @@ internal abstract class Record
 
 internal sealed class UnreliableUnorderedRecord : Record
 {
-    public readonly ushort ChannelId;
     public readonly byte[] Payload = Array.Empty<byte>();
 
     public override RecordType Type =>
@@ -77,34 +76,30 @@ internal sealed class UnreliableUnorderedRecord : Record
     public override void Serialize(ref PacketWriter writer)
     {
         writer.WriteByte((byte)Type);
-        writer.WriteUInt16(ChannelId);
         writer.WriteUInt16((ushort)Payload.Length);
         writer.WriteBytes(Payload);
     }
 
-    private UnreliableUnorderedRecord(ushort channelId, byte[] payload)
+    private UnreliableUnorderedRecord(byte[] payload)
     {
-        ChannelId = channelId;
         Payload = payload;
     }
 
-    public static UnreliableUnorderedRecord? Create(ushort channelId, byte[] payload)
+    public static UnreliableUnorderedRecord? Create(byte[] payload)
     {
         if(payload.Length > MaximumPayloadSize)
         {
             return null;
         }
-        return new UnreliableUnorderedRecord(channelId, payload);
+        return new UnreliableUnorderedRecord(payload);
     }
 
     public new static UnreliableUnorderedRecord? Deserialize(ref PacketReader reader)
     {
-        if(reader.Remaining < 4)
+        if(reader.Remaining < 2)
         {
             return null;
         }
-
-        ushort channelId = reader.ReadUInt16(); // 2
         ushort length = reader.ReadUInt16(); // 2
 
         if(reader.Remaining < length || length > MaximumPayloadSize)
@@ -113,14 +108,14 @@ internal sealed class UnreliableUnorderedRecord : Record
         }
         byte[] payload = reader.ReadBytes(length).ToArray();
 
-        return new UnreliableUnorderedRecord(channelId, payload);
+        return new UnreliableUnorderedRecord(payload);
     }
 
-    public override int GetSerializedSize() => 4 + Payload.Length;
+    public override int GetSerializedSize() => 2 + Payload.Length;
 
     public override string ToString()
     {
-        return $"UnreliableUnordered(Channel={ChannelId}, Length={Payload.Length}, Payload=[{DebugHelpers.FormatPayload(Payload)}])";
+        return $"UnreliableUnordered(Length={Payload.Length}, Payload=[{DebugHelpers.FormatPayload(Payload)}])";
     }
 
     public override string ToDebugString()
@@ -128,7 +123,6 @@ internal sealed class UnreliableUnorderedRecord : Record
         return
 $@"UnreliableUnordered
 {{
-    ChannelId = {ChannelId}
     PayloadLength = {Payload.Length}
     Payload = {DebugHelpers.FormatPayload(Payload)}
 }}";
@@ -137,13 +131,11 @@ $@"UnreliableUnordered
 
 internal abstract class SequencedRecord : Record
 {
-    public readonly ushort ChannelId;
     public readonly uint SequenceId;
     public readonly byte[] Payload = Array.Empty<byte>();
 
-    protected SequencedRecord(ushort channelId, uint sequenceId, byte[] payload)
+    protected SequencedRecord(uint sequenceId, byte[] payload)
     {
-        ChannelId = channelId;
         SequenceId = sequenceId;
         Payload = payload;
     }
@@ -151,20 +143,17 @@ internal abstract class SequencedRecord : Record
     public override void Serialize(ref PacketWriter writer)
     {
         writer.WriteByte((byte)Type);
-        writer.WriteUInt16(ChannelId);
         writer.WriteUInt32(SequenceId);
         writer.WriteUInt16((ushort)Payload.Length);
         writer.WriteBytes(Payload);
     }
 
-    protected static (ushort ChannelId, uint SequenceId, byte[] Payload)? DeserializeBody(ref PacketReader reader)
+    protected static (uint SequenceId, byte[] Payload)? DeserializeBody(ref PacketReader reader)
     {
-        if(reader.Remaining < 8)
+        if(reader.Remaining < 6)
         {
             return null;
         }
-
-        ushort channelId = reader.ReadUInt16(); // 2
         uint sequenceId = reader.ReadUInt32(); // 4
 
         ushort length = reader.ReadUInt16(); // 2
@@ -175,27 +164,27 @@ internal abstract class SequencedRecord : Record
         }
         byte[] payload = reader.ReadBytes(length).ToArray();
 
-        return (channelId, sequenceId, payload);
+        return (sequenceId, payload);
     }
 
-    public override int GetSerializedSize() => 8 + Payload.Length;
+    public override int GetSerializedSize() => 6 + Payload.Length;
 }
 
 internal sealed class ReliableOrderedRecord : SequencedRecord
 {
     public override RecordType Type => RecordType.ReliableOrdered;
 
-    private ReliableOrderedRecord(ushort channelId, uint sequenceId, byte[] payload) : base(channelId, sequenceId, payload)
+    private ReliableOrderedRecord(uint sequenceId, byte[] payload) : base(sequenceId, payload)
     {
     }
 
-    public static ReliableOrderedRecord? Create(ushort channelId, uint sequenceId, byte[] payload)
+    public static ReliableOrderedRecord? Create(uint sequenceId, byte[] payload)
     {
         if(payload.Length > MaximumPayloadSize)
         {
             return null;
         }
-        return new ReliableOrderedRecord(channelId, sequenceId, payload);
+        return new ReliableOrderedRecord(sequenceId, payload);
     }
 
     public new static ReliableOrderedRecord? Deserialize(ref PacketReader reader)
@@ -206,12 +195,12 @@ internal sealed class ReliableOrderedRecord : SequencedRecord
             return null;
         }
 
-        return new ReliableOrderedRecord(body.Value.ChannelId, body.Value.SequenceId, body.Value.Payload);
+        return new ReliableOrderedRecord(body.Value.SequenceId, body.Value.Payload);
     }
 
     public override string ToString()
     {
-        return $"ReliableOrdered(Channel={ChannelId}, Seq={SequenceId}, Length={Payload.Length}, Payload=[{DebugHelpers.FormatPayload(Payload)}])";
+        return $"ReliableOrdered(Seq={SequenceId}, Length={Payload.Length}, Payload=[{DebugHelpers.FormatPayload(Payload)}])";
     }
 
     public override string ToDebugString()
@@ -219,7 +208,6 @@ internal sealed class ReliableOrderedRecord : SequencedRecord
         return
 $@"ReliableOrdered
 {{
-    ChannelId = {ChannelId}
     SequenceId = {SequenceId}
     PayloadLength = {Payload.Length}
     Payload = {DebugHelpers.FormatPayload(Payload)}
@@ -231,17 +219,17 @@ internal sealed class ReliableUnorderedRecord : SequencedRecord
 {
     public override RecordType Type => RecordType.ReliableUnordered;
 
-    private ReliableUnorderedRecord(ushort channelId, uint sequenceId, byte[] payload) : base(channelId, sequenceId, payload)
+    private ReliableUnorderedRecord(uint sequenceId, byte[] payload) : base(sequenceId, payload)
     {
     }
 
-    public static ReliableUnorderedRecord? Create(ushort channelId, uint sequenceId, byte[] payload)
+    public static ReliableUnorderedRecord? Create(uint sequenceId, byte[] payload)
     {
         if(payload.Length > MaximumPayloadSize)
         {
             return null;
         }
-        return new ReliableUnorderedRecord(channelId, sequenceId, payload);
+        return new ReliableUnorderedRecord(sequenceId, payload);
     }
 
     public new static ReliableUnorderedRecord? Deserialize(ref PacketReader reader)
@@ -252,12 +240,12 @@ internal sealed class ReliableUnorderedRecord : SequencedRecord
             return null;
         }
 
-        return new ReliableUnorderedRecord(body.Value.ChannelId, body.Value.SequenceId, body.Value.Payload);
+        return new ReliableUnorderedRecord(body.Value.SequenceId, body.Value.Payload);
     }
 
     public override string ToString()
     {
-        return $"ReliableUnordered(Channel={ChannelId}, Seq={SequenceId}, Length={Payload.Length}, Payload=[{DebugHelpers.FormatPayload(Payload)}])";
+        return $"ReliableUnordered(Seq={SequenceId}, Length={Payload.Length}, Payload=[{DebugHelpers.FormatPayload(Payload)}])";
     }
 
     public override string ToDebugString()
@@ -265,7 +253,6 @@ internal sealed class ReliableUnorderedRecord : SequencedRecord
         return
 $@"ReliableUnordered
 {{
-    ChannelId = {ChannelId}
     SequenceId = {SequenceId}
     PayloadLength = {Payload.Length}
     Payload = {DebugHelpers.FormatPayload(Payload)}
@@ -277,17 +264,17 @@ internal sealed class UnreliableOrderedRecord : SequencedRecord
 {
     public override RecordType Type => RecordType.UnreliableOrdered;
 
-    private UnreliableOrderedRecord(ushort channelId, uint sequenceId, byte[] payload) : base(channelId, sequenceId, payload)
+    private UnreliableOrderedRecord(uint sequenceId, byte[] payload) : base(sequenceId, payload)
     {
     }
 
-    public static UnreliableOrderedRecord? Create(ushort channelId, uint sequenceId, byte[] payload)
+    public static UnreliableOrderedRecord? Create(uint sequenceId, byte[] payload)
     {
         if(payload.Length > MaximumPayloadSize)
         {
             return null;
         }
-        return new UnreliableOrderedRecord(channelId, sequenceId, payload);
+        return new UnreliableOrderedRecord(sequenceId, payload);
     }
 
     public new static UnreliableOrderedRecord? Deserialize(ref PacketReader reader)
@@ -298,12 +285,12 @@ internal sealed class UnreliableOrderedRecord : SequencedRecord
             return null;
         }
 
-        return new UnreliableOrderedRecord(body.Value.ChannelId, body.Value.SequenceId, body.Value.Payload);
+        return new UnreliableOrderedRecord(body.Value.SequenceId, body.Value.Payload);
     }
 
     public override string ToString()
     {
-        return $"UnreliableOrdered(Channel={ChannelId}, Seq={SequenceId}, Length={Payload.Length}, Payload=[{DebugHelpers.FormatPayload(Payload)}])";
+        return $"UnreliableOrdered(Seq={SequenceId}, Length={Payload.Length}, Payload=[{DebugHelpers.FormatPayload(Payload)}])";
     }
 
     public override string ToDebugString()
@@ -311,7 +298,6 @@ internal sealed class UnreliableOrderedRecord : SequencedRecord
         return
 $@"UnreliableOrdered
 {{
-    ChannelId = {ChannelId}
     SequenceId = {SequenceId}
     PayloadLength = {Payload.Length}
     Payload = {DebugHelpers.FormatPayload(Payload)}
@@ -323,14 +309,12 @@ internal sealed class AckMaskRecord : Record
 {
     public readonly RecordType _type;
 
-    public ushort ChannelId;
     public uint RelativeSequenceId;
     public ulong AckBitfield;
 
-    public AckMaskRecord(RecordType type, ushort channelId, uint relativeSequenceId, ulong ackBitField)
+    public AckMaskRecord(RecordType type, uint relativeSequenceId, ulong ackBitField)
     {
         _type = type;
-        ChannelId = channelId;
         RelativeSequenceId = relativeSequenceId;
         AckBitfield = ackBitField;
     }
@@ -340,29 +324,27 @@ internal sealed class AckMaskRecord : Record
     public override void Serialize(ref PacketWriter writer)
     {
         writer.WriteByte((byte)Type);
-        writer.WriteUInt16(ChannelId);
         writer.WriteUInt32(RelativeSequenceId);
         writer.WriteUInt64(AckBitfield);
     }
 
     public static AckMaskRecord? Deserialize(RecordType type, ref PacketReader reader)
     {
-        if(reader.Remaining < 14)
+        if(reader.Remaining < 12)
         {
             return null;
         }
 
-        var ChannelId = reader.ReadUInt16(); // 2
         var RelativeSequenceId = reader.ReadUInt32(); // 4
         var AckBitfield = reader.ReadUInt64(); // 8
-        return new AckMaskRecord(type, ChannelId, RelativeSequenceId, AckBitfield);
+        return new AckMaskRecord(type, RelativeSequenceId, AckBitfield);
     }
 
-    public override int GetSerializedSize() => 14;
+    public override int GetSerializedSize() => 12;
 
     public override string ToString()
     {
-        return $"{Type}(Channel={ChannelId}, RelativeSeq={RelativeSequenceId}, Mask=0x{AckBitfield:X16})";
+        return $"{Type}(RelativeSeq={RelativeSequenceId}, Mask=0x{AckBitfield:X16})";
     }
 
     public override string ToDebugString()
@@ -370,7 +352,6 @@ internal sealed class AckMaskRecord : Record
         return
 $@"{Type}
 {{
-    ChannelId = {ChannelId}
     RelativeSequenceId = {RelativeSequenceId}
     AckBitfield = 0x{AckBitfield:X16}
 }}";
@@ -381,13 +362,11 @@ internal sealed class AckContiguousRecord : Record
 {
     public readonly RecordType _type;
 
-    public ushort ChannelId;
     public uint AcknowledgedSequenceId;
 
-    public AckContiguousRecord(RecordType type, ushort channelId, uint acknowledgedSequenceId)
+    public AckContiguousRecord(RecordType type, uint acknowledgedSequenceId)
     {
         _type = type;
-        ChannelId = channelId;
         AcknowledgedSequenceId = acknowledgedSequenceId;
     }
 
@@ -396,7 +375,6 @@ internal sealed class AckContiguousRecord : Record
     public override void Serialize(ref PacketWriter writer)
     {
         writer.WriteByte((byte)Type);
-        writer.WriteUInt16(ChannelId);
         writer.WriteUInt32(AcknowledgedSequenceId);
     }
 
@@ -410,14 +388,14 @@ internal sealed class AckContiguousRecord : Record
         var ChannelId = reader.ReadUInt16(); // 2
         var AcknowledgedSequenceId = reader.ReadUInt32(); // 4
 
-        return new AckContiguousRecord(type, ChannelId, AcknowledgedSequenceId);
+        return new AckContiguousRecord(type, AcknowledgedSequenceId);
     }
 
     public override int GetSerializedSize() => 6;
 
     public override string ToString()
     {
-        return $"{Type}(Channel={ChannelId}, Ack={AcknowledgedSequenceId})";
+        return $"{Type}(Ack={AcknowledgedSequenceId})";
     }
 
     public override string ToDebugString()
@@ -425,7 +403,6 @@ internal sealed class AckContiguousRecord : Record
         return
 $@"{Type}
 {{
-    ChannelId = {ChannelId}
     AcknowledgedSequenceId = {AcknowledgedSequenceId}
 }}";
     }

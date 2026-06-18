@@ -2,6 +2,7 @@ namespace Relunrel.Connections;
 
 public static class Constants
 {
+    public const int MaxMessageSize = 1024;
     public const byte ProtocolVersion = 0;
 
     public static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(1);
