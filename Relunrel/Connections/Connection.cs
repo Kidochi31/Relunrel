@@ -144,6 +144,10 @@ internal sealed class Connection
 
     private void HandleActiveConnect(Packet packet, DateTime time)
     {
+        if(packet.Header.SessionId != SessionId)
+        {
+            return;
+        }
         if(packet.Header.PacketType == PacketType.RespondConnect)
         {
             ConnectionToken =
@@ -161,6 +165,10 @@ internal sealed class Connection
 
     private void HandlePassiveConnectAttemptComplete(Packet packet, DateTime time)
     {
+        if(packet.Header.SessionId != SessionId || packet.Header.ConnectionToken != ConnectionToken)
+        {
+            return;
+        }
         if(packet.Header.PacketType == PacketType.CompleteConnect)
         {
             SetState(ConnectionState.Connected, time);
@@ -173,6 +181,10 @@ internal sealed class Connection
 
     private void HandleConnected(Packet packet, DateTime time)
     {
+        if(packet.Header.SessionId != SessionId || packet.Header.ConnectionToken != ConnectionToken)
+        {
+            return;
+        }
         switch(packet.Header.PacketType)
         {
             case PacketType.RespondConnect:
@@ -196,6 +208,10 @@ internal sealed class Connection
 
     private void HandleMessagePacket(Packet packet, DateTime time)
     {
+        if(packet.Header.SessionId != SessionId || packet.Header.ConnectionToken != ConnectionToken)
+        {
+            return;
+        }
         if(packet.Body is not MessagePacket messagePacket)
         {
             return;
@@ -290,6 +306,10 @@ internal sealed class Connection
 
     private void HandleFinWaitActive(Packet packet, DateTime time)
     {
+        if(packet.Header.SessionId != SessionId || packet.Header.ConnectionToken != ConnectionToken)
+        {
+            return;
+        }
         switch(packet.Header.PacketType)
         {
             case PacketType.RespondFin:
@@ -305,6 +325,10 @@ internal sealed class Connection
 
     private void HandleFinWaitPassive(Packet packet, DateTime time)
     {
+        if(packet.Header.SessionId != SessionId || packet.Header.ConnectionToken != ConnectionToken)
+        {
+            return;
+        }
         switch(packet.Header.PacketType)
         {
             case PacketType.CompleteFin:
@@ -319,6 +343,10 @@ internal sealed class Connection
 
     private void HandleTimeWait(Packet packet, DateTime time)
     {
+        if(packet.Header.SessionId != SessionId || packet.Header.ConnectionToken != ConnectionToken)
+        {
+            return;
+        }
         switch(packet.Header.PacketType)
         {
             case PacketType.RespondFin:

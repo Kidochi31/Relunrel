@@ -4,6 +4,6 @@ using Relunrel.ConnectionsTest;
 Console.WriteLine("Hello world!");
 
 
-Test.RunTest();
+//Test.RunTest();
 
 Console.WriteLine("done");

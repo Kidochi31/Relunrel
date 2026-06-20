@@ -7,4 +7,10 @@
     <OutputType>Exe</OutputType>
   </PropertyGroup>
 
+  <ItemGroup>
+  <Reference Include="Stun">
+    <HintPath>Stun.dll</HintPath>
+  </Reference>
+  </ItemGroup>
+
 </Project>
