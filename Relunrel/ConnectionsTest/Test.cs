@@ -717,7 +717,7 @@ public class Test{
         DateTime time = DateTime.UtcNow;
 
         ReliableSender sender = new();
-        ReliableReceiver receiver = new();
+        ReceiverAckRegister receiver = new();
 
         byte[] payload = [1, 2, 3, 4];
 
@@ -757,7 +757,7 @@ public class Test{
 
     private static void TestReliableDuplicateMessage()
     {
-        ReliableReceiver receiver = new();
+        ReceiverAckRegister receiver = new();
 
         Assert(receiver.Receive(0, [1]), "First receive");
         Assert(!receiver.Receive(0, [2]), "Duplicate receive");
@@ -857,7 +857,7 @@ public class Test{
         DateTime time = DateTime.UtcNow;
 
         ReliableSender sender = new();
-        ReliableReceiver receiver = new();
+        ReceiverAckRegister receiver = new();
 
         sender.Send([0], time);
         sender.Send([1], time);

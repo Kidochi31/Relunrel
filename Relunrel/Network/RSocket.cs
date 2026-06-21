@@ -6,20 +6,45 @@ using SimpleStunner;
 
 namespace Relunrel.Network;
 
-internal class RSocket
+public class RSocket
 {
     public Socket Socket;
     public Dictionary<IPEndPoint,Connection> Connections = [];
-    private HashSet<IPEndPoint> DeadConnections = [];
+    
     private Listener Listener = new();
+    private bool Listening = false;
     private StunState? StunState;
     public IPEndPoint? ExternalEndPoint {get; private set;}
     public IPEndPoint? InternalEndPoint => Socket.LocalEndPoint as IPEndPoint;
     private Holepunch Holepunch = new();
 
+    private List<IPEndPoint> DeadConnections = [];
+    private List<IPEndPoint> NewConnections = [];
+
+
     public RSocket()
     {
         Socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+    }
+
+    public void EnableListening()
+    {
+        Listening = true;
+    }
+    public void DisableListening()
+    {
+        Listening = false;
+    }
+
+    public Connection ConnectTo(IPEndPoint target, DateTime time)
+    {
+        if (Connections.ContainsKey(target))
+        {
+            return Connections[target];
+        }
+        Connection connection = Connection.CreateActiveConnection((uint)Random.Shared.NextInt64(),target, time);
+        Connections[target] = connection;
+        return connection;
     }
 
     public void BeginStun(List<IPEndPoint> resolvedHosts)
@@ -28,10 +53,11 @@ internal class RSocket
         {
             return;
         }
+        ExternalEndPoint = null;
         StunState = StunAsync.CreateNewStunner(Socket, resolvedHosts, 5, TimeSpan.FromMilliseconds(500));
     }
 
-    public void Tick(DateTime time)
+    public (IPEndPoint[] NewConnections, IPEndPoint[] DeadConnection) Tick(DateTime time)
     {
         TickReceive(time);
         foreach(Connection connection in Connections.Values)
@@ -42,12 +68,17 @@ internal class RSocket
         {
             Connections.Remove(connection);
         }
-        DeadConnections.Clear();
+        
         if(StunState is not null)
         {
             StunAsync.Tick(StunState);
         }
         Holepunch.Tick(Socket, time);
+
+        (IPEndPoint[], IPEndPoint[]) returnValue = ([..NewConnections], [..DeadConnections]);
+        DeadConnections.Clear();
+        NewConnections.Clear();
+        return returnValue;
     }
 
     public void BeginHolePunch(IPEndPoint target, int? timeouts, DateTime time)
@@ -98,13 +129,16 @@ internal class RSocket
                 }
                 else
                 {
-                    // possibly new connection
-                    Connection? connection = Listener.HandlePacket(packet, ipRemote, time);
-                    if(connection is not null)
-                    {
-                        Connections[ipRemote] = connection;
-                        // remove target from hole punch
-                        Holepunch.RemoveTarget(ipRemote);
+                    if(Listener is not null && Listening){
+                        // possibly new connection
+                        Connection? connection = Listener.HandlePacket(packet, ipRemote, time);
+                        if(connection is not null)
+                        {
+                            Connections[ipRemote] = connection;
+                            // remove target from hole punch
+                            Holepunch.RemoveTarget(ipRemote);
+                            NewConnections.Add(ipRemote);
+                        }
                     }
                 }
             }

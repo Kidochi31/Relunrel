@@ -168,7 +168,7 @@ internal sealed class ReliableSender
     }
 }
 
-internal sealed class ReliableReceiver
+internal sealed class ReceiverAckRegister
 {
     private readonly AckRegister AckRegister = new();
 

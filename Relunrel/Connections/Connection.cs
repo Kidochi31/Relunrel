@@ -4,7 +4,7 @@ using Relunrel.Channels;
 
 namespace Relunrel.Connections;
 
-internal sealed class Connection
+public sealed class Connection
 {
 
     public ConnectionState State {get; private set;}
@@ -19,9 +19,11 @@ internal sealed class Connection
 
     private uint NextUnreliableOrderedSequenceId;
 
-    private readonly ReliableSender ReliableSender = new();
+    private readonly ReliableSender ReliableUnorderedSender = new();
+    private readonly ReliableSender ReliableOrderedSender = new();
 
-    private readonly ReliableReceiver ReliableReceiver = new();
+    private readonly ReceiverAckRegister OrderedReceiverAckRegister = new();
+    private readonly ReceiverAckRegister UnorderedReceiverAckRegister = new();
 
     private readonly ReliableOrderedReceiver ReliableOrderedReceiver = new();
 
@@ -111,7 +113,7 @@ internal sealed class Connection
         TimeoutCount = 0;
     }
 
-    public void HandlePacket(Packet packet, DateTime time)
+    internal void HandlePacket(Packet packet, DateTime time)
     {
         LastReceiveTime = time;
         switch(State)
@@ -159,6 +161,7 @@ internal sealed class Connection
         }
         else if(packet.Header.PacketType == PacketType.Reset)
         {
+            Console.WriteLine(1);
             SetState(ConnectionState.Disconnected, time);
         }
     }
@@ -175,6 +178,7 @@ internal sealed class Connection
         }
         else if(packet.Header.PacketType == PacketType.Reset)
         {
+            Console.WriteLine(2);
             SetState(ConnectionState.Disconnected, time);
         }
     }
@@ -197,6 +201,7 @@ internal sealed class Connection
                 break;
 
             case PacketType.Reset:
+                Console.WriteLine(3);
                 SetState(ConnectionState.Disconnected, time);
                 break;
             
@@ -226,7 +231,7 @@ internal sealed class Connection
                     break;
                 case ReliableOrderedRecord reliableOrdered:
                     {
-                        if(ReliableReceiver.Receive(
+                        if(OrderedReceiverAckRegister.Receive(
                             reliableOrdered.SequenceId,
                             reliableOrdered.Payload))
                         {
@@ -278,16 +283,32 @@ internal sealed class Connection
                         break;
                     }
                 case AckContiguousRecord contiguous:
-                    ReliableSender.HandleAcknowledgementContiguous(
-                        contiguous.AcknowledgedSequenceId,
-                        time);
+                    {
+                        switch (contiguous.Type)
+                        {
+                            case RecordType.AckContiguousReliableUnordered:
+                                ReliableUnorderedSender.HandleAcknowledgementContiguous(contiguous.AcknowledgedSequenceId,time);
+                                break;
+                            case RecordType.AckContiguousReliableOrdered:
+                                ReliableOrderedSender.HandleAcknowledgementContiguous(contiguous.AcknowledgedSequenceId,time);
+                                break;
+                        }
+                    }
+                    
                     break;
 
                 case AckMaskRecord mask:
-                    ReliableSender.HandleAcknowledgementMask(
-                        mask.RelativeSequenceId,
-                        mask.AckBitfield,
-                        time);
+                    {
+                        switch (mask.Type)
+                        {
+                            case RecordType.AckMaskReliableUnordered:
+                                ReliableUnorderedSender.HandleAcknowledgementMask(mask.RelativeSequenceId,mask.AckBitfield,time);
+                                break;
+                            case RecordType.AckMaskReliableOrdered:
+                                ReliableOrderedSender.HandleAcknowledgementMask(mask.RelativeSequenceId,mask.AckBitfield,time);
+                                break;
+                        }
+                    }
                     break;
             }
         }
@@ -295,7 +316,7 @@ internal sealed class Connection
 
     private void HandleReliableUnordered(ReliableUnorderedRecord record)
     {
-        if(ReliableReceiver.Receive(
+        if(UnorderedReceiverAckRegister.Receive(
             record.SequenceId,
             record.Payload))
         {
@@ -318,6 +339,7 @@ internal sealed class Connection
                 break;
 
             case PacketType.Reset:
+                Console.WriteLine(4);
                 SetState(ConnectionState.Disconnected, time);
                 break;
         }
@@ -332,10 +354,12 @@ internal sealed class Connection
         switch(packet.Header.PacketType)
         {
             case PacketType.CompleteFin:
+                Console.WriteLine(5);
                 SetState(ConnectionState.Disconnected,  time);
                 break;
 
             case PacketType.Reset:
+                Console.WriteLine(6);
                 SetState(ConnectionState.Disconnected, time);
                 break;
         }
@@ -403,6 +427,7 @@ internal sealed class Connection
         if(TimeoutCount > Constants.MaxConnectRetries)
         {
             QueuePacket(PacketType.Reset, time);
+            Console.WriteLine(7);
             SetState(ConnectionState.Disconnected, time);
             return;
         }
@@ -422,6 +447,7 @@ internal sealed class Connection
         if(TimeoutCount > Constants.MaxConnectRetries)
         {
             QueuePacket(PacketType.Reset, time);
+            Console.WriteLine(8);
             SetState(ConnectionState.Disconnected, time);
             return;
         }
@@ -429,23 +455,20 @@ internal sealed class Connection
         QueuePacket(PacketType.RespondConnect, time);
     }
 
-    private void TickConnected(DateTime time)
+    private void TickSender(ReliableSender sender, DateTime time, bool ordered)
     {
-        ReliableSender.Tick(time);
+        sender.Tick(time);
 
-        while(ReliableSender.RetransmissionsAvailable)
+        while(sender.RetransmissionsAvailable)
         {
-            PendingMessage? message = ReliableSender.DequeueRetransmission();
+            PendingMessage? message = sender.DequeueRetransmission();
 
             if(message is null)
             {
                 continue;
             }
 
-            ReliableUnorderedRecord? record =
-                ReliableUnorderedRecord.Create(
-                    message.SequenceId,
-                    message.Payload);
+            Record? record = ordered ? ReliableOrderedRecord.Create(message.SequenceId,message.Payload) : ReliableUnorderedRecord.Create(message.SequenceId,message.Payload);
 
             if(record is not null)
             {
@@ -453,15 +476,33 @@ internal sealed class Connection
             }
         }
 
-        if(ReliableSender.ResetRequired)
+        
+    }
+
+
+    private void TickConnected(DateTime time)
+    {
+        TickSender(ReliableOrderedSender, time, true);
+        if(ReliableOrderedSender.ResetRequired)
         {
             QueuePacket(PacketType.Reset, time);
+            Console.WriteLine(91);
             SetState(ConnectionState.Disconnected, time);
             return;
         }
+        TickSender(ReliableUnorderedSender, time, false);
+        if(ReliableUnorderedSender.ResetRequired)
+        {
+            QueuePacket(PacketType.Reset, time);
+            Console.WriteLine(92);
+            SetState(ConnectionState.Disconnected, time);
+            return;
+        }
+        
         if(time - LastReceiveTime >= Constants.ConnectionTimeout)
         {
             QueuePacket(PacketType.Reset, time);
+            Console.WriteLine(10);
             SetState(ConnectionState.Disconnected, time);
             return;
         }
@@ -484,6 +525,7 @@ internal sealed class Connection
         if(TimeoutCount > Constants.MaxConnectRetries)
         {
             QueuePacket(PacketType.Reset, time);
+            Console.WriteLine(11);
             SetState(ConnectionState.Disconnected, time);
             return;
         }
@@ -503,6 +545,7 @@ internal sealed class Connection
         if(TimeoutCount > Constants.MaxConnectRetries)
         {
             QueuePacket(PacketType.Reset, time);
+            Console.WriteLine(12);
             SetState(ConnectionState.Disconnected, time);
             return;
         }
@@ -514,11 +557,12 @@ internal sealed class Connection
     {
         if(time - StateEnterTime >= Constants.TimeWaitTimeout)
         {
+            Console.WriteLine(13);
             SetState(ConnectionState.Disconnected, time);
         }
     }
 
-    public Packet? DequeuePacket()
+    internal Packet? DequeuePacket()
     {
         if(OutgoingPackets.Count == 0)
         {
@@ -539,7 +583,7 @@ internal sealed class Connection
             return false;
         }
 
-        uint sequenceId = ReliableSender.Send(payload, time);
+        uint sequenceId = ReliableUnorderedSender.Send(payload, time);
         
         ReliableUnorderedRecord? record = ReliableUnorderedRecord.Create(sequenceId, payload);
         if(record is null)
@@ -558,7 +602,7 @@ internal sealed class Connection
             return false;
         }
 
-        uint sequenceId = ReliableSender.Send(payload, time);
+        uint sequenceId = ReliableOrderedSender.Send(payload, time);
 
         ReliableOrderedRecord? record =
             ReliableOrderedRecord.Create(
@@ -701,7 +745,29 @@ internal sealed class Connection
     {
         List<IAcknowledgement> acknowledgements = [];
 
-        ReliableReceiver.BuildAcknowledgements(acknowledgements);
+        OrderedReceiverAckRegister.BuildAcknowledgements(acknowledgements);
+
+        foreach(IAcknowledgement acknowledgement in acknowledgements)
+        {
+            switch(acknowledgement)
+            {
+                case AckContiguous contiguous:
+                    QueueRecord(
+                        new AckContiguousRecord(
+                            RecordType.AckContiguousReliableOrdered,contiguous.SequenceId));
+                    break;
+
+                case AckMask mask:
+                    QueueRecord(
+                        new AckMaskRecord(
+                            RecordType.AckMaskReliableOrdered,mask.RelativeSequenceId,mask.Mask));
+                    break;
+            }
+        }
+
+        acknowledgements.Clear();
+
+        UnorderedReceiverAckRegister.BuildAcknowledgements(acknowledgements);
 
         foreach(IAcknowledgement acknowledgement in acknowledgements)
         {

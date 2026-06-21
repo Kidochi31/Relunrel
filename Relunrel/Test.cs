@@ -1,9 +1,9 @@
 using Relunrel.ConnectionsTest;
+using Relunrel.PacketsTest;
 
 
 Console.WriteLine("Hello world!");
 
-
-//Test.RunTest();
-
+ //Relunrel.PacketsTest.Test.RunTest();
+Sniffer.RunSniffer();
 Console.WriteLine("done");

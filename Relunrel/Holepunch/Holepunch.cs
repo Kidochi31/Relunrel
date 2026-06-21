@@ -32,7 +32,7 @@ internal class Holepunch
             {
                 socket.SendTo(HolePunchData, target);
                 if(remainingAttempts is not null){
-                    int remainingAttemptsInt = remainingAttempts.Value;
+                    int remainingAttemptsInt = remainingAttempts.Value - 1;
                     if(remainingAttemptsInt <= 0)
                     {
                         Targets.Remove(target);

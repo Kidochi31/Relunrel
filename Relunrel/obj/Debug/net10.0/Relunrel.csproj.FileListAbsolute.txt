@@ -13,3 +13,6 @@
 /home/kidochi/Hacking/Gaming/Relunrel/Relunrel/obj/Debug/net10.0/Relunrel.genruntimeconfig.cache
 /home/kidochi/Hacking/Gaming/Relunrel/Relunrel/obj/Debug/net10.0/ref/Relunrel.dll
 /home/kidochi/Hacking/Gaming/Relunrel/Relunrel/obj/Debug/net10.0/Relunrel.sourcelink.json
+/home/kidochi/Hacking/Gaming/Relunrel/Relunrel/bin/Debug/net10.0/Stun.dll
+/home/kidochi/Hacking/Gaming/Relunrel/Relunrel/obj/Debug/net10.0/Relunrel.csproj.AssemblyReference.cache
+/home/kidochi/Hacking/Gaming/Relunrel/Relunrel/obj/Debug/net10.0/Relunrel.csproj.Up2Date

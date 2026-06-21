@@ -380,12 +380,11 @@ internal sealed class AckContiguousRecord : Record
 
     public static AckContiguousRecord? Deserialize(RecordType type, ref PacketReader reader)
     {
-        if(reader.Remaining < 6)
+        if(reader.Remaining < 4)
         {
             return null;
         }
 
-        var ChannelId = reader.ReadUInt16(); // 2
         var AcknowledgedSequenceId = reader.ReadUInt32(); // 4
 
         return new AckContiguousRecord(type, AcknowledgedSequenceId);
