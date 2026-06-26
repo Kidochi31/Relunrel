@@ -30,6 +30,12 @@ public class RSocket
     public RSocket()
     {
         Socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+        try
+        {
+            Socket.SendTo(RetentionMessage, new IPEndPoint(IPAddress.Loopback, 6969));
+        } catch (Exception) {
+            
+        }
     }
 
     public void EnableListening()
