@@ -20,6 +20,11 @@ public class RSocket
 
     private List<IPEndPoint> DeadConnections = [];
     private List<IPEndPoint> NewConnections = [];
+    private DateTime LastStunRetention = DateTime.UnixEpoch;
+    private TimeSpan StunRetentionTimeout = TimeSpan.FromSeconds(10);
+    private bool ShouldRetainStun = false;
+    private IPEndPoint RetentionEndpoint = new IPEndPoint(IPAddress.Parse("8.8.8.8"), 6969);
+    private byte[] RetentionMessage = [0x69, 0x69];
 
 
     public RSocket()
@@ -71,7 +76,12 @@ public class RSocket
         
         if(StunState is not null)
         {
+            ShouldRetainStun = true;
             StunAsync.Tick(StunState);
+        }
+        if (ShouldRetainStun)
+        {
+            TickStunRetention(time);
         }
         Holepunch.Tick(Socket, time);
 
@@ -93,6 +103,17 @@ public class RSocket
     public void StopHolePunch(IPEndPoint target)
     {
         Holepunch.RemoveTarget(target);
+    }
+
+    private void TickStunRetention(DateTime time)
+    {
+        if(LastStunRetention + StunRetentionTimeout <= time)
+        {
+            LastStunRetention = time;
+            try{
+                Socket.SendTo(RetentionMessage, RetentionEndpoint);
+            } catch (Exception) {}
+        }
     }
 
     private void TickReceive(DateTime time)
