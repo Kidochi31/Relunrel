@@ -42,7 +42,7 @@ public class RSocket
         {
             return Connections[target];
         }
-        Connection connection = Connection.CreateActiveConnection((uint)Random.Shared.NextInt64(),target, time);
+        Connection connection = Connection.CreateActiveConnection((uint)new Random().Next(),target, time);
         Connections[target] = connection;
         return connection;
     }

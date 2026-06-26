@@ -18,7 +18,7 @@ internal class Listener
 
         uint SessionId = packet.Header.SessionId;
 
-        uint ConnectionToken = (uint)Random.Shared.NextInt64();
+        uint ConnectionToken = (uint)new Random().Next();
 
         Connection connection = Connection.CreatePassiveConnection(SessionId, ConnectionToken, source, time);
         return connection;

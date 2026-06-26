@@ -1397,7 +1397,7 @@ public class Test{
 
         Packet[] packetArray = packets.ToArray();
         
-        Random.Shared.Shuffle(packetArray);
+        //new Random().Shuff(packetArray);
 
         foreach(Packet packet in packetArray)
         {

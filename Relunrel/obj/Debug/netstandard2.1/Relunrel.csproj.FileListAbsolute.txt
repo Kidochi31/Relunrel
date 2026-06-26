@@ -1,0 +1,13 @@
+/home/kidochi/Hacking/Gaming/Relunrel/Relunrel/obj/Debug/netstandard2.1/Relunrel.csproj.AssemblyReference.cache
+/home/kidochi/Hacking/Gaming/Relunrel/Relunrel/obj/Debug/netstandard2.1/Relunrel.GeneratedMSBuildEditorConfig.editorconfig
+/home/kidochi/Hacking/Gaming/Relunrel/Relunrel/obj/Debug/netstandard2.1/Relunrel.AssemblyInfoInputs.cache
+/home/kidochi/Hacking/Gaming/Relunrel/Relunrel/obj/Debug/netstandard2.1/Relunrel.AssemblyInfo.cs
+/home/kidochi/Hacking/Gaming/Relunrel/Relunrel/obj/Debug/netstandard2.1/Relunrel.csproj.CoreCompileInputs.cache
+/home/kidochi/Hacking/Gaming/Relunrel/Relunrel/obj/Debug/netstandard2.1/Relunrel.sourcelink.json
+/home/kidochi/Hacking/Gaming/Relunrel/Relunrel/bin/Debug/netstandard2.1/Relunrel.deps.json
+/home/kidochi/Hacking/Gaming/Relunrel/Relunrel/bin/Debug/netstandard2.1/Relunrel.dll
+/home/kidochi/Hacking/Gaming/Relunrel/Relunrel/bin/Debug/netstandard2.1/Relunrel.pdb
+/home/kidochi/Hacking/Gaming/Relunrel/Relunrel/bin/Debug/netstandard2.1/Stun.dll
+/home/kidochi/Hacking/Gaming/Relunrel/Relunrel/obj/Debug/netstandard2.1/Relunrel.csproj.Up2Date
+/home/kidochi/Hacking/Gaming/Relunrel/Relunrel/obj/Debug/netstandard2.1/Relunrel.dll
+/home/kidochi/Hacking/Gaming/Relunrel/Relunrel/obj/Debug/netstandard2.1/Relunrel.pdb

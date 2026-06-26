@@ -4,13 +4,13 @@ namespace Relunrel.Channels;
 
 internal sealed class PendingMessage
 {
-    public required uint SequenceId { get; init; }
+    public uint SequenceId { get; set; }
 
-    public required byte[] Payload { get; init; }
+    public byte[] Payload { get; set; }
 
-    public required DateTime FirstSendTime { get; set; }
+    public DateTime FirstSendTime { get; set; }
 
-    public required DateTime LastSendTime { get; set; }
+    public DateTime LastSendTime { get; set; }
 
     public int RetransmissionCount { get; set; }
 }

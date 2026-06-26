@@ -428,7 +428,7 @@ public static class Test{
 
     private static Record RandomRecord(Random random)
     {
-        uint sequence = (uint)random.NextInt64(uint.MaxValue + 1L);
+        uint sequence = (uint)random.Next();
 
         switch(random.Next(6))
         {
@@ -457,7 +457,7 @@ public static class Test{
                         (int)RecordType.AckMaskReliableOrdered,
                         (int)RecordType.AckMaskReliableUnordered + 1),
                     sequence,
-                    (ulong)random.NextInt64());
+                    (ulong)random.Next());
 
             default:
                 return new AckContiguousRecord(
@@ -480,8 +480,8 @@ public static class Test{
             Header = new PacketHeader
             {
                 ProtocolVersion = (byte)random.Next(256),
-                SessionId = (uint)random.NextInt64(uint.MaxValue + 1L),
-                ConnectionToken = (uint)random.NextInt64(uint.MaxValue + 1L),
+                SessionId = (uint)random.Next(),
+                ConnectionToken = (uint)random.Next(),
                 PacketType = type
             }
         };

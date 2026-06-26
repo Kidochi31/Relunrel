@@ -35,12 +35,12 @@ public static class Sniffer{
             if(target1.Equals(ipRemote))
             {
                 Console.WriteLine($"{target1.Address} {target1.Port} -> {target2.Address} {target2.Port}");
-                socket.SendTo(data, target2);
+                socket.SendTo(buffer[..length], target2);
             }
             else if (target2.Equals(ipRemote))
             {
                 Console.WriteLine($"{target2.Address} {target2.Port} -> {target1.Address} {target1.Port}");
-                socket.SendTo(data, target1);
+                socket.SendTo(buffer[..length], target1);
             }
             else
             {

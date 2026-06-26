@@ -2,9 +2,28 @@ namespace Relunrel.Channels;
 
 
 internal interface IAcknowledgement {}
-internal readonly record struct AckMask(uint RelativeSequenceId, ulong Mask) : IAcknowledgement;
+internal readonly record struct AckMask : IAcknowledgement
+{
+    public readonly uint RelativeSequenceId;
 
-internal readonly record struct AckContiguous(uint SequenceId) : IAcknowledgement;
+    public readonly ulong Mask;
+
+    public AckMask(uint RelativeSequenceId, ulong Mask)
+    {
+        this.RelativeSequenceId = RelativeSequenceId;
+        this.Mask = Mask;
+    }
+}
+
+internal readonly record struct AckContiguous : IAcknowledgement
+{
+    public readonly uint SequenceId;
+
+    public AckContiguous(uint SequenceId)
+    {
+        this.SequenceId = SequenceId;
+    }
+}
 
 internal sealed class AckRegister
 {
