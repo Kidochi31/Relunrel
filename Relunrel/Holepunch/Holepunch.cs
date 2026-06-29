@@ -30,7 +30,9 @@ internal class Holepunch
             (DateTime nextSend, int? remainingAttempts) = Targets[target];
             if(nextSend <= time)
             {
+                try{
                 socket.SendTo(HolePunchData, target);
+                } catch(Exception){}
                 if(remainingAttempts is not null){
                     int remainingAttemptsInt = remainingAttempts.Value - 1;
                     if(remainingAttemptsInt <= 0)

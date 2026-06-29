@@ -15,7 +15,7 @@ public class RSocket
     private bool Listening = false;
     private StunState? StunState;
     public IPEndPoint? ExternalEndPoint {get; private set;}
-    public IPEndPoint? InternalEndPoint => Socket.LocalEndPoint as IPEndPoint;
+    public IPEndPoint? InternalEndPoint { get { try {return Socket.LocalEndPoint as IPEndPoint;} catch (Exception) {return null; }}}
     private Holepunch Holepunch = new();
 
     private List<IPEndPoint> DeadConnections = [];
@@ -124,8 +124,10 @@ public class RSocket
 
     private void TickReceive(DateTime time)
     {
+        try{
         while(Socket.Available > 0)
         {
+            try{
             byte[] buffer = new byte[2048];
 
             EndPoint remote = new IPEndPoint(IPAddress.Any, 0);
@@ -169,7 +171,9 @@ public class RSocket
                     }
                 }
             }
+            } catch(Exception) {}
         }
+        } catch (Exception) {}
     }
 
     private void TickSend(DateTime time, Connection connection)
@@ -181,8 +185,9 @@ public class RSocket
             Packet packet = connection.DequeuePacket()!;
 
             byte[] bytes = packet.Serialize();
-
+            try{
             Socket.SendTo(bytes, connection.RemoteEndPoint);
+            } catch (Exception){}
         }
 
         if(connection.State == ConnectionState.Disconnected)
